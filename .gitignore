@@ -1,0 +1,4 @@
+.vscode
+mysql-server/data
+trino/data
+hadoop/dfs/

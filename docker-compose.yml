@@ -1,0 +1,138 @@
+services:
+  trino-coordinator:
+    image: trinodb/trino:${TRINO_VERSION}
+    container_name: "trino-coordinator"
+    hostname: trino-coordinator
+    networks:
+      - trino-network
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    volumes:
+      - ./trino/coordinator/config.properties:/etc/trino/config.properties
+      - ./trino/coordinator/log.properties:/etc/trino/log.properties
+      - ./trino/coordinator/jvm.config:/etc/trino/jvm.config
+      - ./trino/coordinator/node.properties:/etc/trino/node.properties
+      - ./trino/coordinator/password-authenticator.properties:/etc/trino/password-authenticator.properties
+      - ./trino/coordinator/password.db:/etc/trino/password.db
+      - ./trino/coordinator/certs/clustercoord.pem:/etc/trino/clustercoord.pem
+      - ./trino/catalog:/etc/trino/catalog
+      - ./trino/data/coordinator:/data/trino
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://trino-coordinator:8080/v1/info"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      
+  trino-worker:
+    image: trinodb/trino:${TRINO_VERSION}
+    container_name: "trino-worker"
+    hostname: trino-worker
+    networks:
+      - trino-network
+    env_file:
+      - .env
+    volumes:
+      - ./trino/worker/config.properties:/etc/trino/config.properties
+      - ./trino/worker/log.properties:/etc/trino/log.properties
+      - ./trino/worker/jvm.config:/etc/trino/jvm.config
+      - ./trino/worker/node.properties:/etc/trino/node.properties
+      - ./trino/catalog:/etc/trino/catalog
+      - ./trino/data/worker:/data/trino
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://trino-worker:8080/v1/info"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  hdfs-namenode:
+    image: apache/hadoop:3.4.1
+    container_name: hdfs-namenode
+    hostname: hdfs-namenode
+    ports:
+      - "9870:9870"
+      - "9000:9000"
+    environment:
+      - HADOOP_CONF_DIR=/etc/hadoop
+      - HADOOP_HEAPSIZE=2048
+    volumes:
+      - ./hadoop/dfs/namenode:/hadoop/dfs/namenode
+      - ./hadoop/config:/etc/hadoop
+    entrypoint: ["/bin/bash", "-c"]
+    command: >
+      "if [ ! -d /hadoop/dfs/namenode/current ]; then
+         hdfs namenode -format -nonInteractive;
+       fi;
+       hdfs namenode"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://hdfs-namenode:9870/"]
+      interval: 1m30s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
+    networks:
+      - trino-network
+    restart: always
+
+  hdfs-datanode:
+    image: apache/hadoop:3.4.1
+    container_name: hdfs-datanode
+    hostname: hdfs-datanode
+    ports:
+      - "9864:9864"
+    depends_on:
+      - hdfs-namenode
+    environment:
+      - HADOOP_CONF_DIR=/etc/hadoop
+      - HADOOP_HEAPSIZE=2048
+    volumes:
+      - ./hadoop/dfs/datanode:/hadoop/dfs/datanode
+      - ./hadoop/config:/etc/hadoop
+    command: ["hdfs", "datanode"]
+    networks:
+      - trino-network
+    restart: always
+
+  mysql-server:
+    image: mysql:8.2
+    container_name: mysql-server
+    hostname: mysql-server
+    ports:
+      - "3306:3306"
+    command: mysqld --default-authentication-plugin=caching_sha2_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=metastore_db
+      - MYSQL_USER=hive
+      - MYSQL_PASSWORD=hive
+    volumes:
+      - ./mysql-server/data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+    restart: always
+
+  hive-metastore:
+    image: apache/hive:4.0.0
+    container_name: hive-metastore
+    hostname: hive-metastore
+    ports:
+      - "9083:9083"
+    restart: always
+    environment:
+      - SERVICE_NAME=metastore
+
+networks:
+  trino-network:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 9000
+    ipam:
+      config:
+        - subnet: 172.15.0.0/16
