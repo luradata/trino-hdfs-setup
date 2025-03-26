@@ -1,4 +1,58 @@
 services:
+  hdfs-namenode:
+    image: apache/hadoop:${HADOOP_VERSION}
+    container_name: hdfs-namenode
+    hostname: hdfs-namenode
+    restart: always
+    ports:
+      - "9870:9870"
+      - "9000:9000"
+    env_file:
+      - .env
+    environment:
+      - HADOOP_CONF_DIR=/etc/hadoop
+      - HADOOP_HEAPSIZE=2048
+    volumes:
+      - ./hadoop/dfs/namenode:/hadoop/dfs/namenode
+      - ./hadoop/config/core-site.xml:/etc/hadoop/core-site.xml
+      - ./hadoop/config/hdfs-site.xml:/etc/hadoop/hdfs-site.xml
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://hdfs-namenode:9870/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    entrypoint: ["/bin/bash", "-c"]
+    command: >
+      "if [ ! -d /hadoop/dfs/namenode/current ]; then
+         hdfs namenode -format -nonInteractive;
+       fi;
+       hdfs namenode"
+    networks:
+      - trino-network
+
+  hdfs-datanode:
+    image: apache/hadoop:${HADOOP_VERSION}
+    container_name: hdfs-datanode
+    hostname: hdfs-datanode
+    restart: always
+    ports:
+      - "9864:9864"
+    depends_on:
+      hdfs-namenode:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - HADOOP_CONF_DIR=/etc/hadoop
+      - HADOOP_HEAPSIZE=2048
+    volumes:
+      - ./hadoop/dfs/datanode:/hadoop/dfs/datanode
+      - ./hadoop/config/core-site.xml:/etc/hadoop/core-site.xml
+      - ./hadoop/config/hdfs-site.xml:/etc/hadoop/hdfs-site.xml
+    command: ["hdfs", "datanode"]
+    networks:
+      - trino-network
+
   trino-coordinator:
     image: trinodb/trino:${TRINO_VERSION}
     container_name: "trino-coordinator"
@@ -49,84 +103,57 @@ services:
       timeout: 5s
       retries: 3
 
-  hdfs-namenode:
-    image: apache/hadoop:3.4.1
-    container_name: hdfs-namenode
-    hostname: hdfs-namenode
-    ports:
-      - "9870:9870"
-      - "9000:9000"
-    environment:
-      - HADOOP_CONF_DIR=/etc/hadoop
-      - HADOOP_HEAPSIZE=2048
-    volumes:
-      - ./hadoop/dfs/namenode:/hadoop/dfs/namenode
-      - ./hadoop/config:/etc/hadoop
-    entrypoint: ["/bin/bash", "-c"]
-    command: >
-      "if [ ! -d /hadoop/dfs/namenode/current ]; then
-         hdfs namenode -format -nonInteractive;
-       fi;
-       hdfs namenode"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://hdfs-namenode:9870/"]
-      interval: 1m30s
-      timeout: 30s
-      retries: 5
-      start_period: 30s
-    networks:
-      - trino-network
+  hive-mysql:
+    image: mysql:${MYSQL_VERSION}
+    container_name: hive-mysql
+    hostname: hive-mysql
     restart: always
-
-  hdfs-datanode:
-    image: apache/hadoop:3.4.1
-    container_name: hdfs-datanode
-    hostname: hdfs-datanode
-    ports:
-      - "9864:9864"
-    depends_on:
-      - hdfs-namenode
-    environment:
-      - HADOOP_CONF_DIR=/etc/hadoop
-      - HADOOP_HEAPSIZE=2048
-    volumes:
-      - ./hadoop/dfs/datanode:/hadoop/dfs/datanode
-      - ./hadoop/config:/etc/hadoop
-    command: ["hdfs", "datanode"]
-    networks:
-      - trino-network
-    restart: always
-
-  mysql-server:
-    image: mysql:8.2
-    container_name: mysql-server
-    hostname: mysql-server
     ports:
       - "3306:3306"
-    command: mysqld --default-authentication-plugin=caching_sha2_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    env_file:
+      - .env
     environment:
       - MYSQL_ROOT_PASSWORD=root
       - MYSQL_DATABASE=metastore_db
       - MYSQL_USER=hive
       - MYSQL_PASSWORD=hive
-    volumes:
-      - ./mysql-server/data:/var/lib/mysql
+      - MYSQL_ALLOW_EMPTY_PASSWORD=true
+    command: mysqld --default-authentication-plugin=caching_sha2_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
-      interval: 30s
-      timeout: 15s
-      retries: 5
-    restart: always
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - ./hive-mysql/data:/var/lib/mysql
+    networks:
+      - trino-network
 
   hive-metastore:
-    image: apache/hive:4.0.0
+    image: apache/hive:${HIVE_VERSION}
     container_name: hive-metastore
     hostname: hive-metastore
+    restart: always
     ports:
       - "9083:9083"
-    restart: always
+    env_file:
+      - .env
     environment:
       - SERVICE_NAME=metastore
+      - DB_DRIVER=mysql
+      - HIVE_HOME=/opt/hive
+    volumes:
+      - ./hive-metastore/config/hive-site.xml:/opt/hive/conf/hive-site.xml
+      - ./hive-metastore/lib/mysql-connector-j-8.2.0.jar:/opt/hive/lib/mysql-connector-j-8.2.0.jar
+      - ./hive-metastore/entrypoint.sh:/entrypoint.sh
+    networks:
+      - trino-network
+    depends_on:
+      hive-mysql:
+        condition: service_healthy
+      hdfs-namenode:
+        condition: service_healthy
+
 
 networks:
   trino-network:

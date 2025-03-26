@@ -1,4 +1,4 @@
 .vscode
-mysql-server/data
+hive-mysql/data
 trino/data
 hadoop/dfs/
