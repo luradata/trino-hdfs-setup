@@ -4,7 +4,8 @@
     <property>
         <name>fs.defaultFS</name>
         <value>hdfs://hdfs-namenode:9000</value>
-        <description>The name of the default file system. A URI whose scheme and authority identify the NameNode.</description>
+        <description>The name of the default file system. A URI whose scheme and authority identify
+            the NameNode.</description>
     </property>
     <property>
         <name>hadoop.tmp.dir</name>

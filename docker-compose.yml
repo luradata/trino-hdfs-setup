@@ -14,8 +14,7 @@ services:
       - HADOOP_HEAPSIZE=2048
     volumes:
       - ./hadoop/dfs/namenode:/hadoop/dfs/namenode
-      - ./hadoop/config/core-site.xml:/etc/hadoop/core-site.xml
-      - ./hadoop/config/hdfs-site.xml:/etc/hadoop/hdfs-site.xml
+      - ./hadoop/config:/etc/hadoop
     healthcheck:
       test: ["CMD", "curl", "-f", "http://hdfs-namenode:9870/"]
       interval: 10s
@@ -47,8 +46,7 @@ services:
       - HADOOP_HEAPSIZE=2048
     volumes:
       - ./hadoop/dfs/datanode:/hadoop/dfs/datanode
-      - ./hadoop/config/core-site.xml:/etc/hadoop/core-site.xml
-      - ./hadoop/config/hdfs-site.xml:/etc/hadoop/hdfs-site.xml
+      - ./hadoop/config:/etc/hadoop
     command: ["hdfs", "datanode"]
     networks:
       - trino-network
@@ -151,6 +149,21 @@ services:
     depends_on:
       hive-mysql:
         condition: service_healthy
+      hdfs-namenode:
+        condition: service_healthy
+
+  iceberg-rest:
+    image: tabulario/iceberg-rest
+    container_name: iceberg-rest
+    hostname: iceberg-rest
+    restart: always
+    ports:
+      - "8181:8181"
+    environment:
+      - CATALOG_WAREHOUSE=hdfs://hdfs-namenode:9000/iceberg/warehouse
+    networks:
+      - trino-network
+    depends_on:
       hdfs-namenode:
         condition: service_healthy
 
